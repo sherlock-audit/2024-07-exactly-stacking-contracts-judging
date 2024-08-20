@@ -1,65 +1,4 @@
-# Issue M-1: DoS on deposits when a low savings amount is harvested 
-
-Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/19 
-
-## Found by 
-santipu\_
-### Summary
-
-The missing check in `StakedEXA::harvest` will cause a DoS for new depositors as the function will revert whenever the amount deposited back into the market (savings) is low enough to not mint any share. 
-
-### Root Cause
-
-In `StakedEXA:358` there is a missing check that will cause a DoS for new depositors whenever the amount deposited back into the market (savings) is low enough to not mint any share. 
-
-https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L358
-
-### Internal pre-conditions
-
-1. The [`save`](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L357) amount calculated in `harvest` must be low enough to not mint any share when [deposited back](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L358) into the market. When the market has been active for some time, it's usual that the exchange rate is quite high, causing a deposit of a few wei not to mint any share at all. 
-
-### External pre-conditions
-
-1. The amount that we'll withdraw and deposit back on `harvest` directly depends on the treasury fees accrued on the underlying market. For this DoS to be persistent, the `market` specified in `StakedEXA` must have low activity so that the treasury fees accrued are a low amount. 
-
-### Attack Path
-
-1. Any user calls `deposit` or `mint` to stake EXA tokens. 
-2. The `deposit` or `mint` function calls the internal `_update` function before minting the actual shares.
-3. The `_update` function calls `harvest` to distribute the dividends from the provider market.
-4. The `harvest` function [withdraws](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L356) from the market all funds from the treasury address (`provider`).
-5. The `save` amount is calculated based on the `providerRatio` and that amount of tokens are [deposited back](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L358) into the market. 
-    - When the `save` amount is low enough, the shares minted in the market will be 0, causing a revert on [this line](https://github.com/transmissions11/solmate/blob/main/src/tokens/ERC4626.sol#L48).
-
-As long as the provider market is quite inactive and the treasury fees accrued are a low amount, the `harvest` function will revert every time causing a DoS on all deposits in `StakedEXA`. If the activity in the market stays low for quite some time, the DoS can be extended to more than 7 days, making this issue valid given that staking is a core protocol functionality. 
-
-### Impact
-
-All stakers will experience a DoS on new deposits within the `StakedEXA` contract. 
-
-### PoC
-
-_No response_
-
-### Mitigation
-
-To mitigate this issue is recommended to check within the `harvest` function if the amount to deposit back into the market will mint any share at all:
-
-```diff
-  function harvest() public whenNotPaused {
-    // ...
-
-    memMarket.withdraw(assets, address(this), memProvider);
-    uint256 save = assets - amount;
-+   uint256 sharesMinted = market.previewDeposit(save);
-+   if (save != 0 && sharesMinted != 0) memMarket.deposit(save, savings);
--   if (save != 0) memMarket.deposit(save, savings);
-
-    // ...
-  }
-```
-
-# Issue M-2: Depositing to another receiver othan than `msg.sender` will lead to stuck funds by increasing `avgStart` without claiming 
+# Issue M-1: Depositing to another receiver othan than `msg.sender` will lead to stuck funds by increasing `avgStart` without claiming 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/21 
 
@@ -130,7 +69,96 @@ function test_POC_increaseBalance_withoutClaim() external {
 
 Claiming should be made to the receiver of the funds, `to`. The `_claim()` function should be adapted to receiver an `account` argument.
 
-# Issue M-3: Attackers will reset `avgStart` of any user making rewards stuck for longer and get lost to savings 
+
+
+## Discussion
+
+**santiellena**
+
+Escalate. 
+
+This issue should be Low/Informational. 
+
+In order to "exploit" this vulnerability, the attacker has to donate a sufficient amount to the victim to move the `avgStart` parameter enough. The inability of the victim to withdraw will be temporal and not permanent because as time passes, the penalty decreases, so the issue is incorrect when states that `will lead to stuck funds`. 
+
+Additionally, as this issue is about causing temporal unavailability of part of the funds of a user, the DoS rules might apply. 
+```markdown
+i. The issue causes locking of funds for users for more than a week.
+ii. The issue impacts the availability of time-sensitive functions (cutoff functions are not considered time-sensitive). If at least one of these are describing the case, the issue can be a Medium. If both apply, the issue can be considered of High severity. Additional constraints related to the issue may decrease its severity accordingly.
+Griefing for gas (frontrunning a transaction to fail, even if can be done perpetually) is considered a DoS of a single block, hence only if the function is clearly time-sensitive, it can be a Medium severity issue.
+```
+Point 1) For this to cause unavailability of part of the funds due to temporal penalties for more than a week, big donations must be made which makes the attack unfeasible.
+Point 2) Claiming rewards is not time sensitive.
+
+For all of the above, I believe that this issue doesn't warrant medium severity. 
+
+**sherlock-admin3**
+
+> Escalate. 
+> 
+> This issue should be Low/Informational. 
+> 
+> In order to "exploit" this vulnerability, the attacker has to donate a sufficient amount to the victim to move the `avgStart` parameter enough. The inability of the victim to withdraw will be temporal and not permanent because as time passes, the penalty decreases, so the issue is incorrect when states that `will lead to stuck funds`. 
+> 
+> Additionally, as this issue is about causing temporal unavailability of part of the funds of a user, the DoS rules might apply. 
+> ```markdown
+> i. The issue causes locking of funds for users for more than a week.
+> ii. The issue impacts the availability of time-sensitive functions (cutoff functions are not considered time-sensitive). If at least one of these are describing the case, the issue can be a Medium. If both apply, the issue can be considered of High severity. Additional constraints related to the issue may decrease its severity accordingly.
+> Griefing for gas (frontrunning a transaction to fail, even if can be done perpetually) is considered a DoS of a single block, hence only if the function is clearly time-sensitive, it can be a Medium severity issue.
+> ```
+> Point 1) For this to cause unavailability of part of the funds due to temporal penalties for more than a week, big donations must be made which makes the attack unfeasible.
+> Point 2) Claiming rewards is not time sensitive.
+> 
+> For all of the above, I believe that this issue doesn't warrant medium severity. 
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**0xsimao**
+
+The issue is valid because:
+1. It doesn't need to be an attacker, the same user can use one wallet to deposit into another, triggering this bug
+2. It always leads to stuck funds for longer and directly to loss of funds in some cases
+> Additionally, in case they decide to withdraw after depositing, before the rewards vest again, they will lose these funds to savings.
+3. Due to 1. Making the funds stuck for a lot of time is possible and has no significant requirements (up to 24 weeks as stated in the issue)
+
+**santiellena**
+
+1) Agree. However, I still consider it borderline Medium/Low
+2) Temporary unavailability is not loss of funds. In which cases loss of funds occurs?
+3) As stated in the issue, there actually are significant requirements. The user has to duplicate its staking position in that deposit from other wallet.
+
+I will keep the Escalation so the HoJ reviews it. I think both are fair points.
+
+**0xsimao**
+
+Loss of funds occurs when the user withdraws after depositing. Instead of claiming the rewards on the deposit, `avgStart` would increase without claiming. Then, when withdrawing, [here](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L161), on [claimWithdraw()](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L201-L202), it transfers these rewards to savings, when they should have gone to the user. So the rewards would be lost for the user on unstake. It's not like he can unstake and claim the rewards later, a part of them or all would be lost.
+
+**santiellena**
+
+You are right @0xsimao, in case of staking and then unstaking that will lead to loss of accrued rewards. Unluckily, I didn't have time to check your point before to delete the escalation. 
+
+**WangSecurity**
+
+I agree with @0xsimao arguments and believe medium severity is appropriate here. If you need a deeper analysis from my side, let me know, but I don't see a point in repeating the same points. Planning to reject the escalation and leave the issue as it is.
+
+**WangSecurity**
+
+Result:
+Medium
+Has duplicates
+
+**sherlock-admin2**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [santiellena](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/21/#issuecomment-2278842166): rejected
+
+# Issue M-2: Attackers will reset `avgStart` of any user making rewards stuck for longer and get lost to savings 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/22 
 
@@ -206,7 +234,7 @@ function test_POC_anyone_can_reset_stakedTime() external {
 
 Remove the `avgStart[to]` reset mechanism in `_update()`, as users can decrease their staked time by withdrawing and depositing again, it should not be able to reset like this because they might want to just keep claiming or withdraw in the near future while paying only some `excessFactor` rewards. With the code as is, attackers can manipulate other users rewards and make them lose funds.
 
-# Issue M-4: Frozen/paused Market that is harvested from in StakedEXA will DoS deposits leading to loss of yield 
+# Issue M-3: Frozen/paused Market that is harvested from in StakedEXA will DoS deposits leading to loss of yield 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/35 
 
@@ -297,7 +325,88 @@ function test_POC_halted_deposits() external {
 
 Check if the market is paused or frozen and do not harvest if this is the case.
 
-# Issue M-5: Setting a new market will make depositing to the market impossible when harvesting, DoSing deposits 
+
+
+## Discussion
+
+**santipu03**
+
+Escalate
+
+I believe this issue should be low severity according to the following rule from the Sherlock docs:
+
+> An admin action can break certain assumptions about the functioning of the code. Example: Pausing a collateral causes some users to be unfairly liquidated or any other action causing loss of funds. This is not considered a valid issue.
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> I believe this issue should be low severity according to the following rule from the Sherlock docs:
+> 
+> > An admin action can break certain assumptions about the functioning of the code. Example: Pausing a collateral causes some users to be unfairly liquidated or any other action causing loss of funds. This is not considered a valid issue.
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**0xsimao**
+
+The rule doesn't apply here because the concerns are in different contracts. It's not `StakedEXA` that is paused, but the `Market` integration itself. `StakedEXA` should keep working normally.
+
+**WangSecurity**
+
+As I understand `market` is external and it's the external admin pausing the market, not Exactly admin, correct? If the market is frozen/paused, why the user should be able to deposit into that market?
+
+**0xsimao**
+
+@WangSecurity the market is also a contract of the Exactly protocol. The relevant part is that each contract, `Market` and `StakedEXA`, have their own admin and pausing functionalities. Harvesting is one functionality of `StakedEXA` and it should not DoS deposits, as `StakedEXA` fully works regardless of the market's state. `StakedEXA` has its own pausing functionality [here](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L513-L515).
+
+Answering your question, the purpose of `StakedEXA` is staking the `EXA`, the selected market is just chosen to get the rewards from the provider to the users staking, the `EXA` staked is not actually deposited into the market. Thus it's crucial users can continue staking even if the current selected market for harvesting gets paused/frozen. Rewards are still being accumulated from previous harvests (the duration is 24 weeks). Thus, it would make no sense to forcibly DoS staking as users should be able to deposit and benefit from this yield and the admin of `StakedEXA` should set a new market or wait for the market to be live again, not stop staking.
+
+**WangSecurity**
+
+Can you share where you got this information from? I mean the fact that the users must be able to deposit at any time even if the market is paused/frozen, is it from README, code comments or docs? I don't see it in the first two, but I might be missing something?
+
+**0xsimao**
+
+@WangSecurity EXA that is deposited in StakedEXA is not deposited in the market, it stays in the contract and accumulates rewards from the provider. The provider is the one that deposits in the market but this is external to StakedEXA. The contract is meant to lock liquidity and benefit users that hold their EXA.
+
+It would make sense to freeze deposits if a market is frozen if the EXA tokens were deposited to the market when deposited in StakedEXA, but it is not the case.
+
+Feel free to go through the StakedEXA code, nowhere does it deposit user deposits in the market. It only deposits the provider funds in the market to the savings when the provider gives allowance, but user EXA deposits stay in StakedEXA. Thus, as the EXA funds are not deposited in the market, deposits should not be DoSed when the market is frozen.
+
+**WangSecurity**
+
+@0xsimao as I understand, you mean that users should be able to deposit into StakedEXA at any moment in time, correct? Can you share what this understanding is based on? Is it documented or based on how the code functions (excuse me if a silly question, just don't see it in the code comments or README)?
+
+**0xsimao**
+
+@WangSecurity yes, that is correct. 
+
+The harvesting functionality should not DoS staking ever, there may be periods without new rewards from `harvest()`, the `provider` chooses when/how much rewards to distribute. Take a look at this comment [here](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L341), which says: 
+`This function withdraws the maximum allowable assets from the provider's market,`
+If the market is paused, the maximum allowable assets should be 0. However, it tries to withdraw anyway and reverts.
+
+**WangSecurity**
+
+Thank you for these clarifications. I see how the concern about admin actions has got here. But, indeed, the users should be able to deposit in StakedEXA under any circumstances and when depositing into StakedEXA, users' funds indeed stay inside the contract and are not deposited inside the market. Additionally, both Market and StakedEXA have different admins and pausing functionalities. That's why I agree the rule shouldn't apply here and the issue should remain a valid medium. Planning to reject the escalation and leave the issue as it is.
+
+**WangSecurity**
+
+Result:
+Medium
+Unique
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [santipu03](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/35/#issuecomment-2282762551): rejected
+
+# Issue M-4: Setting a new market will make depositing to the market impossible when harvesting, DoSing deposits 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/41 
 
@@ -390,62 +499,7 @@ function test_POC_DoSedDeposits_DueToSettingANewMarket() external {
 
 Do the same as in the constructor and approve the new `Market` when `setMarket()` is called with `type(uint256).max` `market.asset()` assets.
 
-# Issue M-6: `StakedEXA::notifyRewardAmount()` will increase rewards without actually having tokens causing insolvency or lost rewards 
-
-Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/43 
-
-The protocol has acknowledged this issue.
-
-## Found by 
-0x73696d616f, 0xBugHunter, blockchain555
-### Summary
-
-`StakedEXA::notifyRewardAmount()` reverts if the rewards to emit are smaller than the current balance of rewards (minus staked assets if `reward == asset`), but does not take into account that users may have not yet withdrawn their rewards.
-
-### Root Cause
-
-In `StakedEXA.sol::220`, in `notifyRewardAmount()`, it [checks](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L220-L223) the balance of rewards as:
-```solidity
-if (
-  rewardData.rate * rewardData.duration >
-  reward.balanceOf(address(this)) - (address(reward) == asset() ? totalAssets() : 0)
-) revert InsufficientBalance();
-```
-Thus, it fails to account for rewards that have been emitted but were not yet claimed, still contributing to the balance. This means some users will not be able to withdraw their rewards or if the reward is the same as the asset, users will withdraw staked funds instead of rewards, which will DoS withdrawals.
-
-### Internal pre-conditions
-
-1. Admin calls `StakedEXA.sol::notifyRewardAmount()` without forwarding the tokens. This is a possibility because the admin assumes the code is well behaved and reverts if there are not enough tokens. Thus, it may simulate that it's possible to notify new rewards as the code check is incorrect, and call the function without sending tokens, halting withdrawals or reward claims.
-
-### External pre-conditions
-
-None.
-
-### Attack Path
-
-1. Admin calls `StakedEXA::notifyRewardAmount()` without forwarding tokens.
-2. Users withdraw their stakes and/or rewards.
-3. Last users will not be able to withdraw their stake or claim rewards because the others claimed more than they should.
-
-### Impact
-
-DoSed withdrawals or rewards claim.
-
-### PoC
-
-The following poc shows how it's possible to notify new rewards without forwarding tokens.
-```solidity
-function test_POC_IncorrectBalanceCheck_NotifyRewards() public {
-  skip(duration);
-  stEXA.notifyRewardAmount(exa, initialAmount);
-}
-```
-
-### Mitigation
-
-Track the total claimed rewards and subtract from the available reward's balance.
-
-# Issue M-7: Market utilization ratio near 100% will DoS deposits as harvest tries to withdraw and reverts 
+# Issue M-5: Market utilization ratio near 100% will DoS deposits as harvest tries to withdraw and reverts 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/45 
 
@@ -551,7 +605,7 @@ function test_POC_DoSedDeposits_FailsAsMarketIsFullyUtilized() external {
 
 Cap the amount to withdraw to the maximum amount that does not revert, that is, the amount that makes the utilization ratio reach 100% but not over it.
 
-# Issue M-8: Anyone will DoS setting a new rewards duration which harms the protocol/users as they will receive too much or too little rewards 
+# Issue M-6: Anyone will DoS setting a new rewards duration which harms the protocol/users as they will receive too much or too little rewards 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/46 
 
@@ -615,7 +669,7 @@ function setRewardsDuration(uint256 _rewardsDuration) external onlyRole(DEFAULT_
 }
 ```
 
-# Issue M-9: Having no deposits in `StakedEXA` will lead to stuck rewards when harvesting 
+# Issue M-7: Having no deposits in `StakedEXA` will lead to stuck rewards when harvesting 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/48 
 
@@ -674,9 +728,11 @@ Thus, as can be seen, the index will not be updated by `rewardData.updatedAt` is
 
 If the total supply is null the amount not distributed can be calculated by doing `rate x deltaTime` and send to savings.
 
-# Issue M-10: Liquidating maturies with unassigned earnings will not take into account floating assets increase leading to loss of funds 
+# Issue M-8: Liquidating maturies with unassigned earnings will not take into account floating assets increase leading to loss of funds 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/64 
+
+The protocol has acknowledged this issue.
 
 ## Found by 
 0x73696d616f
@@ -741,7 +797,7 @@ function test_POC_FloatingAssetsIncrease() external {
 
 `Auditor::checkLiquidation()` should compute the increase in collateral by previewing the floating assets increase due to accrued unassigned earnings in a fixed pool or instead of increasing floating assets these earnings could increase the earnings accumulator.
 
-# Issue M-11: Rewards Can Be Harvested Even When Distribution Is Marked As Finished 
+# Issue M-9: Rewards Can Be Harvested Even When Distribution Is Marked As Finished 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/66 
 
@@ -811,9 +867,11 @@ Manual Review
 
  The way to avoid starting a new distribution would be for the provider to set 0 allowances on the market or withdraw the assets
 
-# Issue M-12: Liquidations will leave dust when repaying expired maturities, making it impossible to clear bad debt putting the protocol at a risk of insolvency 
+# Issue M-10: Liquidations will leave dust when repaying expired maturities, making it impossible to clear bad debt putting the protocol at a risk of insolvency 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/69 
+
+The protocol has acknowledged this issue.
 
 ## Found by 
 0x73696d616f
@@ -897,7 +955,7 @@ function test_POC_ClearBadDebt_Impossible_DueToDust() external {
 
 The mentioned rounding error is hard to deal with, it's easier to set some threshold to clear bad debt so rounding errors can be disregarded.
 
-# Issue M-13: Liquidator will leave a pool with unassigned earnings on `Market::clearBadDebt()` free to claim for anyone when the repaid maturity is not the last 
+# Issue M-11: Liquidator will leave a pool with unassigned earnings on `Market::clearBadDebt()` free to claim for anyone when the repaid maturity is not the last 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/73 
 
@@ -993,9 +1051,29 @@ function test_POC_ClearBadDebt_StealMaturities() external {
 
 The unassigned earnings should be assigned to the earnings accumulator pro-rata to the `floatingBackupBorrowed` cleared in the bad debt clearance.
 
-# Issue M-14: Some bad debt will not be cleared when it should which will cause accrual of bad debt decreasing the protocol's solvency 
+
+
+## Discussion
+
+**santichez**
+
+Hi @0xsimao , the mitigation sentence seems a bit unclear. Could you please provide more detail or clarify it further? Thank you.
+
+**0xsimao**
+
+Hey @santichez, smth like [this](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/utils/FixedLib.sol#L25), but the yield goes to the earnings accumulator.
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/exactly/protocol/pull/745
+
+
+# Issue M-12: Some bad debt will not be cleared when it should which will cause accrual of bad debt decreasing the protocol's solvency 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/74 
+
+The protocol has acknowledged this issue.
 
 ## Found by 
 0x73696d616f
@@ -1052,92 +1130,7 @@ function clearBadDebt(address borrower) external {
 
 Increase the earnings accumulator first and only then compare it against the bad debt.
 
-# Issue M-15: `permitAndDeposit` is allowed to be called by the permit creator only 
-
-Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/85 
-
-## Found by 
-HackTrace, Shubham, cholakov
-## Summary
-
-The [`permitAndDeposit`](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L173C2-L176C4) function is allowed to be called by the permit creator only. Not any other contracts will be able to execute these function on behalf of signer.
-
-## Vulnerability Detail
-
-The [`permitAndDeposit`](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L173C2-L176C4) function is meant to permit a spender and deposits assets in a single transaction:
-
-https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L173C2-L176C4
-```solidity
-function permitAndDeposit(uint256 assets, address receiver, Permit calldata p) external returns (uint256) {
-    IERC20Permit(asset()).permit(msg.sender, address(this), p.value, p.deadline, p.v, p.r, p.s);
-    return deposit(assets, receiver);
-  }
-```
-
-This function calls OZ's `permit` and passes `msg.sender` as `owner` to that function:
-
-https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable/blob/master/contracts/token/ERC20/extensions/ERC20PermitUpgradeable.sol#L49C5-L72C6
-```solidity
-function permit(
-        address owner,
-        address spender,
-        uint256 value,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) public virtual {
-        if (block.timestamp > deadline) {
-            revert ERC2612ExpiredSignature(deadline);
-        }
-
-        bytes32 structHash = keccak256(abi.encode(PERMIT_TYPEHASH, owner, spender, value, _useNonce(owner), deadline));
-
-        bytes32 hash = _hashTypedDataV4(structHash);
-
-        address signer = ECDSA.recover(hash, v, r, s);
-        if (signer != owner) {
-            revert ERC2612InvalidSigner(signer, owner);
-        }
-
-        _approve(owner, spender, value);
-    }
-```
-
-This means, that the signer can be only the same person that called [`permitAndDeposit`](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L173C2-L176C4) function.
-
-However, the purpose of the permit is to allow someone to sign the approve signature, so that this signature can be used by another contract to call some function on behalf of signer.
-
-## Impact
-
-[`permitAndDeposit`](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L173C2-L176C4) is allowed to be called by the permit creator only.
-
-## Code Snippet
-
-https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts/blob/main/protocol/contracts/StakedEXA.sol#L173C2-L176C4
-```solidity
-function permitAndDeposit(uint256 assets, address receiver, Permit calldata p) external returns (uint256) {
-    IERC20Permit(asset()).permit(msg.sender, address(this), p.value, p.deadline, p.v, p.r, p.s);
-    return deposit(assets, receiver);
-  }
-```
-
-## Tool used
-
-Manual Review
-
-## Recommendation
-
-Use `receiver` instead of `msg.sender`:
-```diff
-function permitAndDeposit(uint256 assets, address receiver, Permit calldata p) external returns (uint256) {
-    -IERC20Permit(asset()).permit(msg.sender, address(this), p.value, p.deadline, p.v, p.r, p.s);
-    +IERC20Permit(asset()).permit(receiver, address(this), p.value, p.deadline, p.v, p.r, p.s);
-    return deposit(assets, receiver);
-  }
-```
-
-# Issue M-16: Precision Loss in `notifyRewardAmount` Function Causes Unclaimable RewardToken 
+# Issue M-13: Precision Loss in `notifyRewardAmount` Function Causes Unclaimable RewardToken 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/96 
 
