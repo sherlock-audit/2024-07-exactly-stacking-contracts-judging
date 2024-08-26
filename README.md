@@ -158,6 +158,16 @@ Escalations have been resolved successfully!
 Escalation status:
 - [santiellena](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/21/#issuecomment-2278842166): rejected
 
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/exactly/protocol/pull/749
+
+
+**sherlock-admin2**
+
+The Lead Senior Watson signed off on the fix.
+
 # Issue M-2: Attackers will reset `avgStart` of any user making rewards stuck for longer and get lost to savings 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/22 
@@ -233,6 +243,20 @@ function test_POC_anyone_can_reset_stakedTime() external {
 ### Mitigation
 
 Remove the `avgStart[to]` reset mechanism in `_update()`, as users can decrease their staked time by withdrawing and depositing again, it should not be able to reset like this because they might want to just keep claiming or withdraw in the near future while paying only some `excessFactor` rewards. With the code as is, attackers can manipulate other users rewards and make them lose funds.
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/exactly/protocol/pull/750
+
+
+**sherlock-admin2**
+
+The Lead Senior Watson signed off on the fix.
 
 # Issue M-3: Frozen/paused Market that is harvested from in StakedEXA will DoS deposits leading to loss of yield 
 
@@ -406,6 +430,16 @@ Escalations have been resolved successfully!
 Escalation status:
 - [santipu03](https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/35/#issuecomment-2282762551): rejected
 
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/exactly/protocol/pull/751
+
+
+**sherlock-admin2**
+
+The Lead Senior Watson signed off on the fix.
+
 # Issue M-4: Setting a new market will make depositing to the market impossible when harvesting, DoSing deposits 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/41 
@@ -498,6 +532,20 @@ function test_POC_DoSedDeposits_DueToSettingANewMarket() external {
 ### Mitigation
 
 Do the same as in the constructor and approve the new `Market` when `setMarket()` is called with `type(uint256).max` `market.asset()` assets.
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/exactly/protocol/pull/748
+
+
+**sherlock-admin2**
+
+The Lead Senior Watson signed off on the fix.
 
 # Issue M-5: Market utilization ratio near 100% will DoS deposits as harvest tries to withdraw and reverts 
 
@@ -605,6 +653,20 @@ function test_POC_DoSedDeposits_FailsAsMarketIsFullyUtilized() external {
 
 Cap the amount to withdraw to the maximum amount that does not revert, that is, the amount that makes the utilization ratio reach 100% but not over it.
 
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/exactly/protocol/pull/751
+
+
+**sherlock-admin2**
+
+The Lead Senior Watson signed off on the fix.
+
 # Issue M-6: Anyone will DoS setting a new rewards duration which harms the protocol/users as they will receive too much or too little rewards 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/46 
@@ -669,6 +731,20 @@ function setRewardsDuration(uint256 _rewardsDuration) external onlyRole(DEFAULT_
 }
 ```
 
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/exactly/protocol/pull/753
+
+
+**sherlock-admin2**
+
+The Lead Senior Watson signed off on the fix.
+
 # Issue M-7: Having no deposits in `StakedEXA` will lead to stuck rewards when harvesting 
 
 Source: https://github.com/sherlock-audit/2024-07-exactly-stacking-contracts-judging/issues/48 
@@ -727,6 +803,20 @@ Thus, as can be seen, the index will not be updated by `rewardData.updatedAt` is
 ### Mitigation
 
 If the total supply is null the amount not distributed can be calculated by doing `rate x deltaTime` and send to savings.
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/exactly/protocol/pull/752
+
+
+**sherlock-admin2**
+
+The Lead Senior Watson signed off on the fix.
 
 # Issue M-8: Liquidating maturies with unassigned earnings will not take into account floating assets increase leading to loss of funds 
 
@@ -866,6 +956,20 @@ Manual Review
 ## Recommendation
 
  The way to avoid starting a new distribution would be for the provider to set 0 allowances on the market or withdraw the assets
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/exactly/protocol/pull/753
+
+
+**sherlock-admin2**
+
+The Lead Senior Watson signed off on the fix.
 
 # Issue M-10: Liquidations will leave dust when repaying expired maturities, making it impossible to clear bad debt putting the protocol at a risk of insolvency 
 
@@ -1066,8 +1170,12 @@ Hey @santichez, smth like [this](https://github.com/sherlock-audit/2024-07-exact
 **sherlock-admin2**
 
 The protocol team fixed this issue in the following PRs/commits:
-https://github.com/exactly/protocol/pull/745
+https://github.com/exactly/protocol/pull/755
 
+
+**sherlock-admin2**
+
+The Lead Senior Watson signed off on the fix.
 
 # Issue M-12: Some bad debt will not be cleared when it should which will cause accrual of bad debt decreasing the protocol's solvency 
 
@@ -1219,4 +1327,18 @@ Manual Review
 
 ## Recommendation
 Add an admin function to extract the reward tokens that remain undistributed due to precision loss.
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/exactly/protocol/pull/754
+
+
+**sherlock-admin2**
+
+The Lead Senior Watson signed off on the fix.
 
